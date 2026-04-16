@@ -1,9 +1,12 @@
-import json
 import logging
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import faster_whisper
-from pydub import AudioSegment
+import numpy as np
+import soundfile as sf
 
 from src.config import settings
 from src.models import AudioMetadata, TranscriptionResult, TranscriptionSegment
@@ -32,41 +35,75 @@ class TranscriberService:
             logger.info("Model loaded successfully.")
         return self._model
 
+    @staticmethod
+    def _find_ffmpeg() -> str:
+        """Locate ffmpeg executable, checking PATH and common Windows locations."""
+        found = shutil.which("ffmpeg")
+        if found:
+            return found
+        candidates = [
+            r"C:\Users\gerar\ffmpeg-8.1-essentials_build\ffmpeg-8.1-essentials_build\bin\ffmpeg.exe",
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+        ]
+        for path in candidates:
+            if Path(path).exists():
+                return path
+        raise FileNotFoundError(
+            "ffmpeg not found. Add it to PATH or install it with: winget install Gyan.FFmpeg"
+        )
+
+    def _to_wav(self, file_path: Path) -> Path:
+        """Convert any audio file to WAV using ffmpeg if needed."""
+        if file_path.suffix.lower() == ".wav":
+            return file_path
+        wav_path = file_path.with_suffix(".wav")
+        if not wav_path.exists():
+            ffmpeg = self._find_ffmpeg()
+            subprocess.run(
+                [ffmpeg, "-y", "-i", str(file_path), "-ar", "16000", "-ac", "1", str(wav_path)],
+                check=True,
+                capture_output=True,
+            )
+        return wav_path
+
     def get_audio_metadata(self, file_path: Path) -> AudioMetadata:
         """Extract metadata from an audio file."""
-        audio = AudioSegment.from_file(str(file_path))
+        wav_path = self._to_wav(file_path)
+        info = sf.info(str(wav_path))
         return AudioMetadata(
             file_path=file_path,
-            duration_seconds=len(audio) / 1000.0,
-            sample_rate=audio.frame_rate,
-            channels=audio.channels,
+            duration_seconds=info.duration,
+            sample_rate=info.samplerate,
+            channels=info.channels,
             file_size_mb=file_path.stat().st_size / (1024 * 1024),
         )
 
     def _split_audio(self, file_path: Path) -> list[Path]:
         """Split a long audio file into chunks for processing."""
-        audio = AudioSegment.from_file(str(file_path))
-        duration_ms = len(audio)
-        chunk_ms = self.chunk_duration * 1000
+        wav_path = self._to_wav(file_path)
+        data, samplerate = sf.read(str(wav_path), dtype="float32")
+        total_samples = len(data)
+        chunk_samples = self.chunk_duration * samplerate
 
-        if duration_ms <= chunk_ms:
-            return [file_path]
+        if total_samples <= chunk_samples:
+            return [wav_path]
 
         chunks_dir = file_path.parent / f".chunks_{file_path.stem}"
         chunks_dir.mkdir(exist_ok=True)
 
         chunk_paths: list[Path] = []
-        for i, start in enumerate(range(0, duration_ms, chunk_ms)):
-            end = min(start + chunk_ms, duration_ms)
-            chunk = audio[start:end]
+        for i, start in enumerate(range(0, total_samples, chunk_samples)):
+            end = min(start + chunk_samples, total_samples)
+            chunk_data = data[start:end]
             chunk_path = chunks_dir / f"chunk_{i:04d}.wav"
-            chunk.export(str(chunk_path), format="wav")
+            sf.write(str(chunk_path), chunk_data, samplerate)
             chunk_paths.append(chunk_path)
             logger.info(
                 "Chunk %d: %.1fs - %.1fs",
                 i,
-                start / 1000,
-                end / 1000,
+                start / samplerate,
+                end / samplerate,
             )
 
         return chunk_paths
@@ -75,9 +112,12 @@ class TranscriberService:
         """Remove temporary chunk files."""
         chunks_dir = file_path.parent / f".chunks_{file_path.stem}"
         if chunks_dir.exists():
-            import shutil
             shutil.rmtree(chunks_dir)
             logger.info("Cleaned up temporary chunks.")
+        wav_path = file_path.with_suffix(".wav")
+        if wav_path != file_path and wav_path.exists():
+            wav_path.unlink()
+            logger.info("Cleaned up converted WAV.")
 
     def transcribe(self, file_path: Path) -> TranscriptionResult:
         """
@@ -131,8 +171,8 @@ class TranscriberService:
                 segment_id += 1
 
             if chunk_path != file_path:
-                audio_chunk = AudioSegment.from_file(str(chunk_path))
-                time_offset += len(audio_chunk) / 1000.0
+                info = sf.info(str(chunk_path))
+                time_offset += info.duration
 
         self._cleanup_chunks(file_path)
 

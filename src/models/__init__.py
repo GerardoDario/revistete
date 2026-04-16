@@ -1,6 +1,7 @@
 from .audio import AudioMetadata
 from .transcription import TranscriptionSegment, TranscriptionResult
 from .summary import SaleItem, SalesSummary
+from .sale_event import SaleEvent, SalesExtractionResult
 
 __all__ = [
     "AudioMetadata",
@@ -8,4 +9,6 @@ __all__ = [
     "TranscriptionResult",
     "SaleItem",
     "SalesSummary",
+    "SaleEvent",
+    "SalesExtractionResult",
 ]
