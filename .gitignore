@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output directories
+output/transcriptions/
+output/summaries/
+
+# Audio files (large)
+audio/*.wav
+audio/*.mp3
+audio/*.m4a
+audio/*.flac
+audio/*.ogg
+audio/*.wma
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Whisper model cache
+whisper_cache/
