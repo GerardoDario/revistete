@@ -10,6 +10,8 @@ dependencies = [
     "soundfile>=0.12.1",
     "numpy>=1.26.0",
     "openai>=1.12.0",
+    "TikTokLive==6.6.5",
+    "betterproto==2.0.0b7",
 ]
 
 [project.scripts]
@@ -21,3 +23,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.uv]
+prerelease = "allow"
